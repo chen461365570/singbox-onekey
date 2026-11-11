@@ -19,6 +19,7 @@
   - v2rayN / Shadowrocket / NekoBox 等 → 通用节点列表（分流在客户端里选"绕过大陆"）
   - 链接后加 `/clash` 或 `/singbox` 可强制指定格式
 - **绕过大陆分流**：大陆域名和 IP 直连，其余走代理；大陆域名用国内 DNS 解析，国外域名经代理解析，不泄露 DNS
+- **规则自动更新**：Clash 和 sing-box 两种格式统一使用 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)（基于 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)），客户端每天自动拉取一次，走国内可访问的镜像
 - BBR 加速、虚拟内存（默认 8G）
 - 密钥全部在服务器本地随机生成，重复运行沿用原密钥，订阅链接不变
 

@@ -283,7 +283,7 @@ unified-delay: true
 tcp-concurrent: true
 # rule data from a mirror reachable inside mainland China
 geo-auto-update: true
-geo-update-interval: 168
+geo-update-interval: 24
 geox-url:
   geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip-lite.dat"
   geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
@@ -326,7 +326,11 @@ rules:
   - MATCH,PROXY
 EOF
   # sing-box client profile (SFA / SFI / SFM / sing-box core), same mainland-direct split
-  local RS=https://testingcf.jsdelivr.net/gh/SagerNet
+  # rule sets: MetaCubeX/meta-rules-dat (same data as the Clash profile, built on
+  # Loyalsoldier/v2ray-rules-dat), refreshed by the client once a day
+  local RS=https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo
+  local RSOPT='"type": "remote", "format": "binary", "download_detour": "direct", "update_interval": "1d"'
+  local CN_SETS='[ "geosite-cn", "geosite-apple-cn", "geosite-microsoft-cn", "geosite-steam-cn", "geosite-games-cn" ]'
   cat > "$STATE/singbox.json" <<EOF
 {
   "log": { "level": "warn", "timestamp": true },
@@ -335,7 +339,7 @@ EOF
       { "type": "https", "tag": "dns-proxy", "server": "1.1.1.1", "detour": "PROXY" },
       { "type": "https", "tag": "dns-cn", "server": "223.5.5.5" }
     ],
-    "rules": [ { "rule_set": "geosite-cn", "server": "dns-cn" } ],
+    "rules": [ { "rule_set": $CN_SETS, "server": "dns-cn" } ],
     "final": "dns-proxy",
     "strategy": "prefer_ipv4"
   },
@@ -368,18 +372,21 @@ EOF
     "auto_detect_interface": true,
     "default_domain_resolver": "dns-cn",
     "rule_set": [
-      { "type": "remote", "tag": "geosite-cn", "format": "binary", "download_detour": "direct",
-        "url": "$RS/sing-geosite@rule-set/geosite-cn.srs" },
-      { "type": "remote", "tag": "geosite-!cn", "format": "binary", "download_detour": "direct",
-        "url": "$RS/sing-geosite@rule-set/geosite-geolocation-!cn.srs" },
-      { "type": "remote", "tag": "geoip-cn", "format": "binary", "download_detour": "direct",
-        "url": "$RS/sing-geoip@rule-set/geoip-cn.srs" }
+      { "tag": "geosite-private", $RSOPT, "url": "$RS/geosite/private.srs" },
+      { "tag": "geosite-cn", $RSOPT, "url": "$RS/geosite/cn.srs" },
+      { "tag": "geosite-apple-cn", $RSOPT, "url": "$RS/geosite/apple-cn.srs" },
+      { "tag": "geosite-microsoft-cn", $RSOPT, "url": "$RS/geosite/microsoft@cn.srs" },
+      { "tag": "geosite-steam-cn", $RSOPT, "url": "$RS/geosite/steam@cn.srs" },
+      { "tag": "geosite-games-cn", $RSOPT, "url": "$RS/geosite/category-games@cn.srs" },
+      { "tag": "geosite-!cn", $RSOPT, "url": "$RS/geosite/geolocation-!cn.srs" },
+      { "tag": "geoip-cn", $RSOPT, "url": "$RS/geoip/cn.srs" }
     ],
     "rules": [
       { "action": "sniff" },
       { "protocol": "dns", "action": "hijack-dns" },
       { "ip_is_private": true, "outbound": "direct" },
-      { "rule_set": "geosite-cn", "outbound": "direct" },
+      { "rule_set": "geosite-private", "outbound": "direct" },
+      { "rule_set": $CN_SETS, "outbound": "direct" },
       { "rule_set": "geosite-!cn", "outbound": "PROXY" },
       { "rule_set": "geoip-cn", "outbound": "direct" }
     ],
