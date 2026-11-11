@@ -279,11 +279,28 @@ allow-lan: false
 mode: rule
 log-level: warning
 ipv6: true
+unified-delay: true
+tcp-concurrent: true
+# rule data from a mirror reachable inside mainland China
+geo-auto-update: true
+geo-update-interval: 168
+geox-url:
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip-lite.dat"
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb"
 dns:
   enable: true
+  ipv6: true
   enhanced-mode: fake-ip
-  nameserver: [https://1.1.1.1/dns-query, https://8.8.8.8/dns-query]
+  fake-ip-range: 198.18.0.1/16
+  # mainland + LAN names get real IPs, resolved by mainland DNS (correct CDN node)
+  fake-ip-filter: ["*.lan", "*.local", "+.msftconnecttest.com", "+.msftncsi.com", "time.*.com", "ntp.*.com", "+.pool.ntp.org", "geosite:cn"]
   default-nameserver: [223.5.5.5, 119.29.29.29]
+  proxy-server-nameserver: [https://223.5.5.5/dns-query, https://doh.pub/dns-query]
+  nameserver-policy:
+    "geosite:private,cn": [https://223.5.5.5/dns-query, https://doh.pub/dns-query]
+  # everything else is resolved through the proxy: no DNS leak, no poisoned answers
+  nameserver: ["https://1.1.1.1/dns-query#PROXY", "https://8.8.8.8/dns-query#PROXY"]
 proxies:
   - { name: $N-VLESS-Reality, type: vless, server: $ip, port: $P_VLESS, uuid: $UUID, network: tcp, tls: true, udp: true, flow: xtls-rprx-vision, servername: $SNI, client-fingerprint: chrome, reality-opts: { public-key: $PUB, short-id: $SID } }
   - { name: $N-Hysteria2, type: hysteria2, server: $ip, port: $P_HY2, password: $PW, sni: $CERT_CN, alpn: [h3], skip-cert-verify: true }
@@ -296,10 +313,82 @@ proxy-groups:
 rules:
   - GEOSITE,private,DIRECT
   - GEOIP,private,DIRECT,no-resolve
+  # ---- mainland China: direct ----
   - GEOSITE,cn,DIRECT
+  - GEOSITE,apple-cn,DIRECT
+  - GEOSITE,microsoft@cn,DIRECT
+  - GEOSITE,steam@cn,DIRECT
+  - GEOSITE,category-games@cn,DIRECT
+  # ---- known foreign sites: proxy, without a local DNS lookup ----
+  - GEOSITE,geolocation-!cn,PROXY
+  # ---- anything left: mainland IP direct, the rest proxy ----
   - GEOIP,CN,DIRECT
   - MATCH,PROXY
 EOF
+  # sing-box client profile (SFA / SFI / SFM / sing-box core), same mainland-direct split
+  local RS=https://testingcf.jsdelivr.net/gh/SagerNet
+  cat > "$STATE/singbox.json" <<EOF
+{
+  "log": { "level": "warn", "timestamp": true },
+  "dns": {
+    "servers": [
+      { "type": "https", "tag": "dns-proxy", "server": "1.1.1.1", "detour": "PROXY" },
+      { "type": "https", "tag": "dns-cn", "server": "223.5.5.5" }
+    ],
+    "rules": [ { "rule_set": "geosite-cn", "server": "dns-cn" } ],
+    "final": "dns-proxy",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    { "type": "tun", "tag": "tun-in", "address": [ "172.19.0.1/30", "fdfe:dcba:9876::1/126" ],
+      "auto_route": true, "strict_route": true },
+    { "type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080 }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "PROXY", "default": "AUTO",
+      "outbounds": [ "AUTO", "$N-VLESS-Reality", "$N-Hysteria2", "$N-TUIC", "$N-SS2022", "$N-VMess-WS" ] },
+    { "type": "urltest", "tag": "AUTO", "url": "https://www.gstatic.com/generate_204", "interval": "5m",
+      "outbounds": [ "$N-VLESS-Reality", "$N-Hysteria2", "$N-TUIC", "$N-SS2022", "$N-VMess-WS" ] },
+    { "type": "vless", "tag": "$N-VLESS-Reality", "server": "$ip", "server_port": $P_VLESS,
+      "uuid": "$UUID", "flow": "xtls-rprx-vision",
+      "tls": { "enabled": true, "server_name": "$SNI", "utls": { "enabled": true, "fingerprint": "chrome" },
+               "reality": { "enabled": true, "public_key": "$PUB", "short_id": "$SID" } } },
+    { "type": "hysteria2", "tag": "$N-Hysteria2", "server": "$ip", "server_port": $P_HY2, "password": "$PW",
+      "tls": { "enabled": true, "server_name": "$CERT_CN", "insecure": true, "alpn": [ "h3" ] } },
+    { "type": "tuic", "tag": "$N-TUIC", "server": "$ip", "server_port": $P_TUIC, "uuid": "$UUID", "password": "$PW",
+      "congestion_control": "bbr",
+      "tls": { "enabled": true, "server_name": "$CERT_CN", "insecure": true, "alpn": [ "h3" ] } },
+    { "type": "shadowsocks", "tag": "$N-SS2022", "server": "$ip", "server_port": $P_SS,
+      "method": "2022-blake3-aes-128-gcm", "password": "$SSKEY" },
+    { "type": "vmess", "tag": "$N-VMess-WS", "server": "$ip", "server_port": $P_VMESS, "uuid": "$UUID",
+      "security": "auto", "transport": { "type": "ws", "path": "$WSPATH" } },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-cn",
+    "rule_set": [
+      { "type": "remote", "tag": "geosite-cn", "format": "binary", "download_detour": "direct",
+        "url": "$RS/sing-geosite@rule-set/geosite-cn.srs" },
+      { "type": "remote", "tag": "geosite-!cn", "format": "binary", "download_detour": "direct",
+        "url": "$RS/sing-geosite@rule-set/geosite-geolocation-!cn.srs" },
+      { "type": "remote", "tag": "geoip-cn", "format": "binary", "download_detour": "direct",
+        "url": "$RS/sing-geoip@rule-set/geoip-cn.srs" }
+    ],
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "ip_is_private": true, "outbound": "direct" },
+      { "rule_set": "geosite-cn", "outbound": "direct" },
+      { "rule_set": "geosite-!cn", "outbound": "PROXY" },
+      { "rule_set": "geoip-cn", "outbound": "direct" }
+    ],
+    "final": "PROXY"
+  },
+  "experimental": { "cache_file": { "enabled": true } }
+}
+EOF
+  sing-box check -c "$STATE/singbox.json" || die "sing-box 客户端配置校验失败"
   chmod 600 "$STATE"/*
 }
 
@@ -320,6 +409,7 @@ setup_sub() {
   rm -rf "$WWW"; mkdir -p "$WWW/$TOKEN"
   cp "$STATE/clash.yaml" "$WWW/$TOKEN/clash.yaml"
   cp "$STATE/subscription.txt" "$WWW/$TOKEN/sub.txt"
+  cp "$STATE/singbox.json" "$WWW/$TOKEN/singbox.json"
   chown -R caddy:caddy "$WWW"; chmod -R u=rwX,g=rX,o= "$WWW"
   host=${DOMAIN:-$ip}
   local tls_block
@@ -342,6 +432,20 @@ $tls_block
 		header Content-Type "text/yaml; charset=utf-8"
 		header Content-Disposition "attachment; filename=$NAME"
 		header Profile-Update-Interval 24
+		file_server
+	}
+	@singbox {
+		path /$TOKEN
+		header_regexp User-Agent (?i)(sing-box|SFA|SFI|SFM|SFT)
+	}
+	handle @singbox {
+		rewrite * /$TOKEN/singbox.json
+		header Content-Type "application/json; charset=utf-8"
+		file_server
+	}
+	handle /$TOKEN/singbox {
+		rewrite * /$TOKEN/singbox.json
+		header Content-Type "application/json; charset=utf-8"
 		file_server
 	}
 	handle /$TOKEN {
@@ -402,6 +506,9 @@ show_info() {
     yellow "  https://$host:$P_SUB/$TOKEN"
     echo "Clash 强制格式："
     yellow "  https://$host:$P_SUB/$TOKEN/clash"
+    echo "sing-box 强制格式："
+    yellow "  https://$host:$P_SUB/$TOKEN/singbox"
+    echo "（Clash 和 sing-box 格式自带分流：大陆直连，其余走代理）"
     echo
   fi
   echo "单个节点链接："

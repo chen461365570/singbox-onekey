@@ -13,7 +13,12 @@
 | VMess + WebSocket | TCP 8080 |
 
 - **订阅链接**：Caddy 提供 HTTPS 订阅，用 Let's Encrypt IP 证书（无需域名），自动续期
-- **一个链接通吃**：Clash / Mihomo 系客户端自动拿到带分流规则的 Clash 配置，v2rayN / Shadowrocket / NekoBox 等拿到通用节点列表
+- **一个链接通吃**：按客户端自动返回对应格式
+  - Clash / Mihomo 系 → Clash 配置（带分流）
+  - sing-box 官方客户端（SFA / SFI / SFM）→ sing-box 配置（带分流）
+  - v2rayN / Shadowrocket / NekoBox 等 → 通用节点列表（分流在客户端里选"绕过大陆"）
+  - 链接后加 `/clash` 或 `/singbox` 可强制指定格式
+- **绕过大陆分流**：大陆域名和 IP 直连，其余走代理；大陆域名用国内 DNS 解析，国外域名经代理解析，不泄露 DNS
 - BBR 加速、虚拟内存（默认 8G）
 - 密钥全部在服务器本地随机生成，重复运行沿用原密钥，订阅链接不变
 
